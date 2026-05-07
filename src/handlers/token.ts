@@ -5,6 +5,10 @@ import { log } from '../log';
 
 let cachedCopilotToken: { token: string; expires_at: number } | undefined;
 
+export function clearTokenCache() {
+	cachedCopilotToken = undefined;
+}
+
 export async function handleToken(res: http.ServerResponse, force = false) {
 	try {
 		if (force) {
@@ -64,6 +68,9 @@ function httpGet(url: string, headers: Record<string, string>): Promise<string> 
 					resolve(body);
 				}
 			});
+		});
+		req.setTimeout(10_000, () => {
+			req.destroy(new Error(`Request to ${url} timed out after 10s`));
 		});
 		req.on('error', reject);
 		req.end();

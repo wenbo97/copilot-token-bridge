@@ -1,10 +1,11 @@
 import * as vscode from 'vscode';
 import * as http from 'http';
-import { handleToken } from './handlers/token';
+import { handleToken, clearTokenCache } from './handlers/token';
 import { initLog, log } from './log';
 
-const PORT = 3774;
+const DEFAULT_PORT = 3774;
 let server: http.Server | undefined;
+let activePort: number = DEFAULT_PORT;
 let statusBarItem: vscode.StatusBarItem;
 
 export async function activate(context: vscode.ExtensionContext) {
@@ -22,23 +23,27 @@ export async function activate(context: vscode.ExtensionContext) {
 	);
 }
 
+function getConfiguredPort(): number {
+	const cfg = vscode.workspace.getConfiguration('copilot-token-bridge');
+	const port = cfg.get<number>('port', DEFAULT_PORT);
+	if (!Number.isInteger(port) || port < 1 || port > 65535) {
+		log(`Invalid port setting ${port}, falling back to ${DEFAULT_PORT}`);
+		return DEFAULT_PORT;
+	}
+	return port;
+}
+
 function startServer() {
 	if (server) {
-		vscode.window.showInformationMessage(`Copilot Token Bridge already running on port ${PORT}`);
+		vscode.window.showInformationMessage(`Copilot Token Bridge already running on port ${activePort}`);
 		return;
 	}
+
+	activePort = getConfiguredPort();
 
 	const srv = http.createServer(async (req, res) => {
 		const start = Date.now();
 		log(`→ ${req.method} ${req.url}`);
-
-		// Local-only service: only accept loopback connections, no CORS exposure.
-		if (req.method === 'OPTIONS') {
-			res.writeHead(204);
-			res.end();
-			log(`← 204 OPTIONS (${Date.now() - start}ms)`);
-			return;
-		}
 
 		try {
 			const url = new URL(req.url ?? '/', `http://${req.headers.host}`);
@@ -65,8 +70,8 @@ function startServer() {
 
 	srv.on('error', (err: any) => {
 		if (err.code === 'EADDRINUSE') {
-			log(`Port ${PORT} is already in use`);
-			vscode.window.showErrorMessage(`Copilot Token Bridge: Port ${PORT} is already in use`);
+			log(`Port ${activePort} is already in use`);
+			vscode.window.showErrorMessage(`Copilot Token Bridge: Port ${activePort} is already in use`);
 		} else {
 			log(`Server error: ${err.message}`);
 			vscode.window.showErrorMessage(`Copilot Token Bridge error: ${err.message}`);
@@ -74,10 +79,10 @@ function startServer() {
 		server = undefined;
 	});
 
-	srv.listen(PORT, '127.0.0.1', () => {
-		log(`Server listening on http://127.0.0.1:${PORT}`);
-		vscode.window.showInformationMessage(`Copilot Token Bridge started on port ${PORT}`);
-		statusBarItem.text = `$(key) Copilot Token :${PORT}`;
+	srv.listen(activePort, '127.0.0.1', () => {
+		log(`Server listening on http://127.0.0.1:${activePort}`);
+		vscode.window.showInformationMessage(`Copilot Token Bridge started on port ${activePort}`);
+		statusBarItem.text = `$(key) Copilot Token :${activePort}`;
 		statusBarItem.tooltip = 'Click to stop Copilot Token Bridge';
 		statusBarItem.command = 'copilot-token-bridge.stopServer';
 		statusBarItem.show();
@@ -90,8 +95,9 @@ function stopServer() {
 	if (!server) { return; }
 	server.close();
 	server = undefined;
+	clearTokenCache();
 	statusBarItem.hide();
-	log('Server stopped');
+	log('Server stopped, token cache cleared');
 	vscode.window.showInformationMessage('Copilot Token Bridge stopped');
 }
 

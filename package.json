@@ -3,8 +3,16 @@
   "displayName": "Copilot Token Bridge",
   "description": "Expose your VS Code GitHub Copilot internal token over a local HTTP endpoint for use by other tools",
   "version": "0.1.0",
-  "publisher": "local",
+  "publisher": "wenbo97",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/wenbo97/copilot-token-bridge.git"
+  },
+  "bugs": {
+    "url": "https://github.com/wenbo97/copilot-token-bridge/issues"
+  },
+  "homepage": "https://github.com/wenbo97/copilot-token-bridge#readme",
   "engines": {
     "vscode": "^1.116.0"
   },
@@ -25,7 +33,19 @@
         "command": "copilot-token-bridge.stopServer",
         "title": "Copilot Token Bridge: Stop Server"
       }
-    ]
+    ],
+    "configuration": {
+      "title": "Copilot Token Bridge",
+      "properties": {
+        "copilot-token-bridge.port": {
+          "type": "number",
+          "default": 3774,
+          "minimum": 1,
+          "maximum": 65535,
+          "description": "TCP port for the local token endpoint. Bound to 127.0.0.1. Restart the server (or VS Code) for changes to take effect."
+        }
+      }
+    }
   },
   "scripts": {
     "vscode:prepublish": "npm run package",
@@ -40,7 +60,7 @@
     "check-types": "tsc --noEmit",
     "lint": "eslint src",
     "test": "vscode-test",
-    "local:release": "npx @vscode/vsce package --allow-missing-repository"
+    "local:release": "npx @vscode/vsce package"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.10",
