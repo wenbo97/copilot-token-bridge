@@ -2,7 +2,7 @@
   "name": "copilot-token-bridge",
   "displayName": "Copilot Token Bridge",
   "description": "Expose your VS Code GitHub Copilot internal token over a local HTTP endpoint for use by other tools",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "publisher": "wenbo97",
   "license": "MIT",
   "repository": {

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.0
+
+- Republish of 0.2.0 with no functional changes.
+
 ## 0.2.0
 
 - Default port changed from `3774` to `18774` to avoid Windows Hyper-V/WinNAT excluded port ranges (the previous default caused `EACCES: permission denied` on many Windows machines).
