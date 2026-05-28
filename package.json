@@ -2,7 +2,7 @@
   "name": "copilot-token-bridge",
   "displayName": "Copilot Token Bridge",
   "description": "Expose your VS Code GitHub Copilot internal token over a local HTTP endpoint for use by other tools",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "wenbo97",
   "license": "MIT",
   "repository": {
@@ -32,6 +32,14 @@
       {
         "command": "copilot-token-bridge.stopServer",
         "title": "Copilot Token Bridge: Stop Server"
+      },
+      {
+        "command": "copilot-token-bridge.setPort",
+        "title": "Copilot Token Bridge: Set Port"
+      },
+      {
+        "command": "copilot-token-bridge.showMenu",
+        "title": "Copilot Token Bridge: Show Menu"
       }
     ],
     "configuration": {
@@ -39,7 +47,7 @@
       "properties": {
         "copilot-token-bridge.port": {
           "type": "number",
-          "default": 3774,
+          "default": 18774,
           "minimum": 1,
           "maximum": 65535,
           "description": "TCP port for the local token endpoint. Bound to 127.0.0.1. Restart the server (or VS Code) for changes to take effect."

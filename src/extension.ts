@@ -3,10 +3,12 @@ import * as http from 'http';
 import { handleToken, clearTokenCache } from './handlers/token';
 import { initLog, log } from './log';
 
-const DEFAULT_PORT = 3774;
+const DEFAULT_PORT = 18774;
+const PING_SIGNATURE = 'copilot-token-bridge';
 let server: http.Server | undefined;
 let activePort: number = DEFAULT_PORT;
 let statusBarItem: vscode.StatusBarItem;
+let sharedMode = false;
 
 export async function activate(context: vscode.ExtensionContext) {
 	initLog();
@@ -15,12 +17,65 @@ export async function activate(context: vscode.ExtensionContext) {
 	statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
 	context.subscriptions.push(statusBarItem);
 
-	startServer();
+	startServer({ silentIfTaken: true });
 
 	context.subscriptions.push(
 		vscode.commands.registerCommand('copilot-token-bridge.startServer', () => startServer()),
-		vscode.commands.registerCommand('copilot-token-bridge.stopServer', () => stopServer())
+		vscode.commands.registerCommand('copilot-token-bridge.stopServer', () => stopServer()),
+		vscode.commands.registerCommand('copilot-token-bridge.setPort', () => setPort()),
+		vscode.commands.registerCommand('copilot-token-bridge.showMenu', () => showMenu()),
+		vscode.workspace.onDidChangeConfiguration((e) => {
+			if (e.affectsConfiguration('copilot-token-bridge.port')) {
+				const newPort = getConfiguredPort();
+				if ((server || sharedMode) && newPort !== activePort) {
+					log(`Port changed to ${newPort}, restarting server`);
+					stopServer();
+					startServer({ silentIfTaken: true });
+				}
+			}
+		})
 	);
+}
+
+async function showMenu() {
+	const owning = !!server;
+	const items: (vscode.QuickPickItem & { action: string })[] = [
+		{ label: '$(edit) Change port...', description: `current: ${activePort}`, action: 'setPort' },
+	];
+	if (owning) {
+		items.push({ label: '$(debug-stop) Stop server', action: 'stop' });
+	} else if (!sharedMode) {
+		items.push({ label: '$(play) Start server', action: 'start' });
+	}
+	const state = owning ? `owning :${activePort}` : sharedMode ? `shared :${activePort}` : 'stopped';
+	const pick = await vscode.window.showQuickPick(items, {
+		title: `Copilot Token Bridge (${state})`,
+	});
+	if (!pick) { return; }
+	if (pick.action === 'setPort') { await setPort(); }
+	else if (pick.action === 'stop') { stopServer(); }
+	else if (pick.action === 'start') { startServer(); }
+}
+
+async function setPort() {
+	const current = getConfiguredPort();
+	const input = await vscode.window.showInputBox({
+		title: 'Copilot Token Bridge: Set Port',
+		prompt: 'Enter a TCP port (1-65535). Avoid Windows reserved ranges.',
+		value: String(current),
+		validateInput: (v) => {
+			const n = Number(v);
+			if (!Number.isInteger(n) || n < 1 || n > 65535) {
+				return 'Port must be an integer between 1 and 65535';
+			}
+			return null;
+		}
+	});
+	if (input === undefined) { return; }
+	const port = Number(input);
+	await vscode.workspace.getConfiguration('copilot-token-bridge')
+		.update('port', port, vscode.ConfigurationTarget.Global);
+	// onDidChangeConfiguration will restart the server
 }
 
 function getConfiguredPort(): number {
@@ -33,9 +88,38 @@ function getConfiguredPort(): number {
 	return port;
 }
 
-function startServer() {
+function probeExistingInstance(port: number, timeoutMs = 500): Promise<boolean> {
+	return new Promise((resolve) => {
+		const req = http.get({ host: '127.0.0.1', port, path: '/ping', timeout: timeoutMs }, (res) => {
+			let body = '';
+			res.on('data', (c) => body += c);
+			res.on('end', () => {
+				try {
+					const j = JSON.parse(body);
+					resolve(!!(j && j.service === PING_SIGNATURE));
+				} catch { resolve(false); }
+			});
+		});
+		req.on('error', () => resolve(false));
+		req.on('timeout', () => { req.destroy(); resolve(false); });
+	});
+}
+
+function enterSharedMode(port: number) {
+	sharedMode = true;
+	activePort = port;
+	statusBarItem.text = `$(link) Copilot Token :${port}`;
+	statusBarItem.tooltip = `Another VS Code window already runs the bridge on :${port}. Click for actions.`;
+	statusBarItem.command = 'copilot-token-bridge.showMenu';
+	statusBarItem.show();
+	log(`Another instance owns port ${port}, entering shared mode`);
+}
+
+function startServer(opts: { silentIfTaken?: boolean } = {}) {
 	if (server) {
-		vscode.window.showInformationMessage(`Copilot Token Bridge already running on port ${activePort}`);
+		if (!opts.silentIfTaken) {
+			vscode.window.showInformationMessage(`Copilot Token Bridge already running on port ${activePort}`);
+		}
 		return;
 	}
 
@@ -52,6 +136,9 @@ function startServer() {
 			if (req.method === 'GET' && pathname === '/token') {
 				const force = url.searchParams.get('force') === 'true';
 				await handleToken(res, force);
+			} else if (req.method === 'GET' && pathname === '/ping') {
+				res.writeHead(200, { 'Content-Type': 'application/json' });
+				res.end(JSON.stringify({ service: PING_SIGNATURE, pid: process.pid }));
 			} else {
 				res.writeHead(404, { 'Content-Type': 'application/json' });
 				res.end(JSON.stringify({ error: { message: 'Not found' } }));
@@ -68,23 +155,30 @@ function startServer() {
 		}
 	});
 
-	srv.on('error', (err: any) => {
+	srv.on('error', async (err: any) => {
+		server = undefined;
 		if (err.code === 'EADDRINUSE') {
-			log(`Port ${activePort} is already in use`);
-			vscode.window.showErrorMessage(`Copilot Token Bridge: Port ${activePort} is already in use`);
+			const ours = await probeExistingInstance(activePort);
+			if (ours) {
+				enterSharedMode(activePort);
+				return;
+			}
+			log(`Port ${activePort} is already in use by another process`);
+			if (!opts.silentIfTaken) {
+				vscode.window.showErrorMessage(`Copilot Token Bridge: Port ${activePort} is already in use`);
+			}
 		} else {
 			log(`Server error: ${err.message}`);
 			vscode.window.showErrorMessage(`Copilot Token Bridge error: ${err.message}`);
 		}
-		server = undefined;
 	});
 
 	srv.listen(activePort, '127.0.0.1', () => {
+		sharedMode = false;
 		log(`Server listening on http://127.0.0.1:${activePort}`);
-		vscode.window.showInformationMessage(`Copilot Token Bridge started on port ${activePort}`);
 		statusBarItem.text = `$(key) Copilot Token :${activePort}`;
-		statusBarItem.tooltip = 'Click to stop Copilot Token Bridge';
-		statusBarItem.command = 'copilot-token-bridge.stopServer';
+		statusBarItem.tooltip = 'Click for Copilot Token Bridge actions';
+		statusBarItem.command = 'copilot-token-bridge.showMenu';
 		statusBarItem.show();
 	});
 
@@ -92,6 +186,12 @@ function startServer() {
 }
 
 function stopServer() {
+	if (sharedMode) {
+		sharedMode = false;
+		statusBarItem.hide();
+		log('Exited shared mode');
+		return;
+	}
 	if (!server) { return; }
 	server.close();
 	server = undefined;
