@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.1
+
+- The HTTP server now starts only when requested through the status bar menu or Start Server command.
+- The status bar item remains visible while stopped, with start/stop actions and live port updates.
+- Opening a VS Code window no longer automatically reveals the Output log panel.
+
 ## 0.3.0
 
 - Republish of 0.2.0 with no functional changes.

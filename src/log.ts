@@ -4,7 +4,6 @@ let channel: vscode.OutputChannel;
 
 export function initLog() {
 	channel = vscode.window.createOutputChannel('LLM Proxy');
-	channel.show(true);
 }
 
 export function log(msg: string) {
